@@ -6,6 +6,7 @@ function [rst] = motifCharacterize(chValues, params)
     validation = true; % flag for validation
     merge = true; % flag for merge
     assignthre = 3;
+    display = true;
 
     inputidx = 1;
     while true
@@ -29,6 +30,9 @@ function [rst] = motifCharacterize(chValues, params)
             case 'assign'
                 inputidx = inputidx + 1;
                 assignthre = params{inputidx};
+            case 'display'
+                inputidx = inputidx + 1;
+                display = params{inputidx};
             otherwise
                 error('MOTIFCHARACTERIZE: Input error');
         end
@@ -135,8 +139,8 @@ function [rst] = motifCharacterize(chValues, params)
             chtemp = chtemp & isactive{idxtemp(jj)};
         end
         
-        motifActMatRe{ii} = mattemp / length(idxtemp);
-        motifPrcsnRe{ii} = sqrt(prcsntemp / length(idxtemp) - motifActMatRe{ii} .^ 2);
+        motifActMatRe{ii} = mattemp / length(idxtemp); % mean motif
+        motifPrcsnRe{ii} = sqrt(prcsntemp / length(idxtemp) - motifActMatRe{ii} .^ 2); % std
         motifChRe{ii} = chtemp;
     end
     
@@ -181,12 +185,155 @@ function [rst] = motifCharacterize(chValues, params)
     end
     
     %% Make save data
+    size(motifSetRe)
+    size(motifActMatRe)
     motifstruct = struct('motifSet', motifSetRe, 'motifActMat', motifActMatRe, 'motifPrcsn', motifPrcsnRe, 'motifCh', motifChRe);
     motifsave = {simMat, simMatOri, burstnum, clusternum, motifstruct};
-    
+
     %% Finish
     rst.summary = [];
     rst.save = motifsave;
-    rst.visual = [];
+    filenames = [];
+    if display
+        % similarty and dendrogram
+        fig = figure('visible', 'off');
+        imagesc(simMat)
+        sgtitle(join(['Similarity (> ' num2str(thre) 'Hz)'],''));
+    
+        % similarity map
+        subplot(3,2,1:4);
+        imagesc(simMat)
+        colormap(jet)
+        colorbar
+        pbaspect([1 1 1])
+        xticklabels([])
+        yticklabels([])
+    
+        % dendrogram
+        simMatOri = simMat;
+        subplot(3,2,5:6);
+        dist = 1 - simMatOri;
+        dist = squareform(dist);
+        z = linkage(dist, 'average');
+        h = dendrogram(z, 0);
+        for ii=1:length(h)
+            h(ii).Color = 'k';
+        end
+        xticklabels([])
+        yticks([0 1])
+        ylim([-0.01 1])
+        
+        nowstr = datestr(now, 'yymmdd-HHMMSS.FFF');
+        filename = [nowstr '_similarity.png'];
+        filename = fullfile(chValues.savepath, filename);
+        filenames = [filenames filename];
+        saveas(fig, filename);
+        close(fig);
+
+        % motif
+        chWhole = [12, 13, 14, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 41, 42, 43, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 56, 57, 58, 61, 62, 63, 64, 65, 66, 67, 68, 71, 72, 73, 74, 75, 76, 77, 78, 82, 83, 84, 85, 86, 87];
+        c = jet;
+        c = flipud(c);
+        maxtime = 0.03;
+
+        for ii=1:length(motifstruct)
+            actMat = motifstruct(ii).motifActMat;
+            prcsn = motifstruct(ii).motifPrcsn;
+            fstspk = firstSpikeRecon(actMat, prcsn);
+            ts = fstspk(:, 1) * 1e3;
+            prcsn = fstspk(:, 2) * 1e3;
+            ts(ts > maxtime * 1e3) = NaN;
+            ts(prcsn > maxtime / 2 * 1e3) = NaN;
+            prcsn(ts > maxtime * 1e3) = NaN;
+            prcsn(prcsn > maxtime / 2 * 1e3) = NaN;
+
+            % subplot1 timestamp
+            map = zeros(8) + maxtime + 0.1;
+            map = map * 1e3;
+        
+            xs = zeros(length(chWhole), 1);
+            ys = zeros(length(chWhole), 1);
+            for jj=1:length(chWhole)
+                x1 = floor(chWhole(jj) / 10);
+                y1 = rem(chWhole(jj), 10);
+                if ~isnan(ts(jj))
+                    map(y1, x1) = ts(jj);
+                end
+                xs(jj) = x1;
+                ys(jj) = y1;
+            end
+
+            fig = figure('visible', 'off');
+            sgtitle(join(['Motif' num2str(ii)],''))
+            subplot(311)
+            imagesc(map)
+            daspect([1 1 1])
+            colormap(c);
+            colorbar
+            caxis([-0.005 maxtime] * 1e3)
+            xticks([])
+            yticks([])
+            hold on
+            [~, minidx] = min(ts);
+            [~, maxidx] = max(ts);
+            plot(xs(minidx), ys(minidx), 'xw', 'markersize', 10, 'linewidth', 3)
+            plot(xs(maxidx), ys(maxidx), 'ow', 'markersize', 10, 'linewidth', 3)
+            ylabel("spk time")
+
+            % subplot2 order
+            [ts, tsidx] = sort(ts);
+            prcsn = prcsn(tsidx);
+        
+            map = zeros(8) + 60;
+            map = map * 1e3;
+        
+            xs = zeros(length(chWhole), 1);
+            ys = zeros(length(chWhole), 1);
+            for jj=1:length(tsidx)
+                x1 = floor(chWhole(tsidx(jj)) / 10);
+                y1 = rem(chWhole(tsidx(jj)), 10);
+                if ~isnan(ts(jj))
+                    map(y1, x1) = jj;
+                end
+                xs(jj) = x1;
+                ys(jj) = y1;
+            end
+            
+            subplot(312)
+            imagesc(map)
+            daspect([1 1 1])
+            colormap(c);
+            colorbar
+            caxis([0 30])
+            xticks([])
+            yticks([])
+            hold on
+            [~, minidx] = min(ts);
+            [~, maxidx] = max(ts);
+            plot(xs(minidx), ys(minidx), 'xw', 'markersize', 10, 'linewidth', 3)
+            plot(xs(maxidx), ys(maxidx), 'ow', 'markersize', 10, 'linewidth', 3)
+            ylabel("spk order")
+
+            subplot(313)
+            order = 1:59;
+            errorbar(ts, order, prcsn, '.k', 'horizontal', 'linewidth', 2, 'markersize', 15)
+            xlim([-.005 maxtime] * 1e3)
+            ylim([0 30])
+            ylabel("order"); xlabel("time [ms]")
+            grid
+            pbaspect([1 1 1])
+
+            nowstr = datestr(now, 'yymmdd-HHMMSS.FFF');
+            filename = [nowstr '_motif' num2str(ii) '.png'];
+            filename = fullfile(chValues.savepath, filename);
+            filenames = [filenames filename];
+            saveas(fig, filename);
+            close(fig);
+        end
+        
+        rst.visual = filename;
+    else
+        rst.visual = '';
+    end
 end
 

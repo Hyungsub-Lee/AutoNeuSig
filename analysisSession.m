@@ -12,6 +12,7 @@ classdef analysisSession < handle
         analysisSummary
         analysisSave
         analysisVisual
+        txtPrint
         
         intervalConfig
         
@@ -33,6 +34,7 @@ classdef analysisSession < handle
                 configFile = 'analysis_config.xlsx';
             end
             if ~ischar(configFile) || exist(configFile, 'file') ~= 2
+                exist(configFile, 'file')
                 error('Analysis config error');
             end
             
@@ -61,11 +63,13 @@ classdef analysisSession < handle
             obj.analysisSummary = false(obj.analysisnum, 1);
             obj.analysisSave = false(obj.analysisnum, 1);
             obj.analysisVisual = false(obj.analysisnum, 1);
+            obj.txtPrint = strings(obj.analysisnum, 1);
             for ii=1:obj.analysisnum
                 methodidx = obj.findMethod(obj.analysisname{ii});
                 obj.analysisSummary(ii) = obj.config.Summary(methodidx);
                 obj.analysisSave(ii) = obj.config.Save(methodidx);
                 obj.analysisVisual(ii) = obj.config.Visualize(methodidx);
+                obj.txtPrint(ii) = obj.config.txtPrint(methodidx);
             end
         end
         
@@ -79,19 +83,17 @@ classdef analysisSession < handle
             if status ~= 1
                 error(['ANALYZE: folder making failed, ' msg])
             end
-            
             total = cell(obj.filenum, obj.analysisnum);
             metas = cell(obj.filenum, 1);
             for ii=1:obj.filenum
                 filepath = fullfile(obj.filelist(ii).folder, obj.filelist(ii).name);
                 myvalue = obj.fileLoad(filepath);
                 myvalue.savepath = obj.savepath;
-                
+
                 for jj=1:length(obj.intervalConfig)
                     intvConfig = obj.intervalConfig{jj};
                     myvalue.buildInterval(intvConfig.name, intvConfig.manner, intvConfig.input1,  intvConfig.input2);
                 end
-                
                 metas{ii} = myvalue.meta;
                 for jj=1:obj.analysisnum
                     analysisName = obj.analysisname{jj};
@@ -116,6 +118,7 @@ classdef analysisSession < handle
             % Need to implement data save, summary, visualization
             obj.savedata(total, metas);
             obj.summary(total, metas);
+            obj.summary_(total);
             obj.visualization(total);
         end
         
@@ -183,6 +186,37 @@ classdef analysisSession < handle
             filename = analysisSession.savenameGen(obj.savepath);
             save(filename, 'datatosave', 'files', 'analysis', 'inputs', 'metas');
         end
+
+        function summary_(obj, total)
+            for jj=1:obj.filenum
+                filenameOri = obj.filelist(jj).name;
+                filename = analysisSession.summarytxtnameGen(obj.savepath,filenameOri);
+    
+                summaryStr = filenameOri;
+                summaryStr = strcat(summaryStr,"\n\n");
+                
+                for ii=1:obj.analysisnum
+                    tempcell = [];
+                    if ~obj.analysisSummary(ii)
+                        continue
+                    end
+                    sumsum = total{jj, ii}.summary;
+                    if isempty(sumsum)
+                        continue
+                    end
+
+                    summaryStr = strcat(summaryStr,obj.txtPrint(ii));
+                    summaryStr = strcat(summaryStr,"\n");
+                    summaryStr = strcat(summaryStr,num2str(sumsum));
+                    summaryStr = strcat(summaryStr,"\n\n");
+                end
+                
+                % write
+                fileID = fopen(filename,'w');
+                fprintf(fileID,summaryStr);
+                fclose(fileID);
+            end
+        end
         
         function summary(obj, total, metas)
             % implementation, addvars
@@ -196,9 +230,9 @@ classdef analysisSession < handle
                     tempcell{ii, jj} = metas{ii}.(metanames{jj});
                 end
             end
+
             summaryTable = addvars(summaryTable, tempcell);
             summaryTable = splitvars(summaryTable);
-            
             summarylabels = cell(obj.analysisnum, 1);
             tempidx = 1;
             for ii=1:obj.analysisnum
@@ -213,14 +247,18 @@ classdef analysisSession < handle
                     end
                     tempcell = cat(1, tempcell, sumsum);
                 end
+                if isempty(tempcell)
+                    continue
+                end
                 summaryTable = addvars(summaryTable, tempcell);
                 summarylabels{tempidx} = obj.analysisname{ii};
                 tempidx = tempidx + 1;
             end
-            
             summarylabels(tempidx:end) = [];
             summaryTable.Properties.VariableNames = cat(1, metanames, summarylabels);
             
+            save("summaryTable.mat","summaryTable");
+
             conditionTable = table(obj.analysisConfig);
             
             filename = analysisSession.summarynameGen(obj.savepath);
@@ -326,6 +364,11 @@ classdef analysisSession < handle
         function filename = summarynameGen(savepath)
             nowstr = datestr(now, 'yymmdd-HHMM');
             filename = fullfile(savepath, [nowstr '.xlsx']);
+        end
+
+        function filename = summarytxtnameGen(savepath,filenameOri)
+            nowstr = datestr(now, 'yymmdd-HHMM');
+            filename = fullfile(savepath, [nowstr '_' filenameOri '.txt']);
         end
         
         function filename = visualnameGen(savepath)

@@ -1,5 +1,5 @@
 function [rst] = activeChs(chValues, params)
-    %% inputs
+    %% inputsd
     inputidx = 1;
     threshold = 0.05; % Hz
     display = true;
